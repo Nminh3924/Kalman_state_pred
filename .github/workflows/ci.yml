@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        # Debug keeps Eigen's internal checks on; Release is what users run.
+        build_type: [Debug, Release]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies (Ubuntu)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y cmake libeigen3-dev libgtest-dev
+
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install eigen googletest
+
+      - name: Build
+        run: |
+          cmake -S cpp -B build -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+          cmake --build build
+
+      - name: Unit tests
+        run: ctest --test-dir build --output-on-failure
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: End-to-end smoke test
+        run: |
+          pip install -r python/requirements.txt
+          python python/simulate.py --out data/sim
+          for filter in kf ekf ukf; do build/main $filter data/sim --forecast 10; done
+          python python/evaluate.py --data data/sim
